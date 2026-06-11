@@ -7,6 +7,7 @@ type UserState int
 const (
 	StateNone UserState = iota
 	StateAwaitingNoteText
+	StateAwaitingDeleteNumber
 )
 
 type StateManager struct {

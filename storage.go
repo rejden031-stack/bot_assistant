@@ -16,18 +16,17 @@ type Storage interface {
 	List(userID int64) ([]Note, error)
 	Find(userID int64, query string) ([]Note, error)
 	Delete(userID int64, id int) error
+	DeleteAll(userID int64) error
 }
 
 type MemoryStorage struct {
-	mu     sync.RWMutex
-	notes  map[int64][]Note
-	nextID map[int64]int
+	mu    sync.RWMutex
+	notes map[int64][]Note
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		notes:  make(map[int64][]Note),
-		nextID: make(map[int64]int),
+		notes: make(map[int64][]Note),
 	}
 }
 
@@ -35,11 +34,20 @@ func (s *MemoryStorage) Add(userID int64, text string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id := s.nextID[userID]
-	s.nextID[userID] = id + 1
+	notes := s.notes[userID]
+
+	taken := make(map[int]bool)
+	for _, n := range notes {
+		taken[n.ID] = true
+	}
+
+	id := 1
+	for taken[id] {
+		id++
+	}
 
 	note := Note{ID: id, Text: text}
-	s.notes[userID] = append(s.notes[userID], note)
+	s.notes[userID] = append(notes, note)
 
 	return id, nil
 }
@@ -98,6 +106,13 @@ func (s *MemoryStorage) Delete(userID int64, id int) error {
 	}
 
 	return fmt.Errorf("запись #%d не найдена", id)
+}
+
+func (s *MemoryStorage) DeleteAll(userID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.notes, userID)
+	return nil
 }
 
 func formatNotesList(notes []Note) string {

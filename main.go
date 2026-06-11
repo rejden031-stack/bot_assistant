@@ -16,9 +16,8 @@ func main() {
 	storage := NewMemoryStorage()
 	stateManager := NewStateManager()
 
-	setupCommands(bot)
-
 	startHealthServer()
+	setupCommands(bot)
 
 	log.Printf("Бот запущен как: %s", bot.Self.UserName)
 
@@ -109,6 +108,7 @@ func setupCommands(bot *tgbotapi.BotAPI) {
 		{Command: "list", Description: "Показать все заметки"},
 		{Command: "find", Description: "Найти заметки"},
 		{Command: "del", Description: "Удалить заметку по номеру"},
+		{Command: "clear", Description: "Удалить все заметки"},
 		{Command: "help", Description: "Справка"},
 	}
 
@@ -129,8 +129,11 @@ func mainMenuKeyboard() tgbotapi.ReplyKeyboardMarkup {
 		{Text: "/del"},
 	}
 	row3 := []tgbotapi.KeyboardButton{
+		{Text: "/clear"},
+	}
+	row4 := []tgbotapi.KeyboardButton{
 		{Text: "/help"},
 	}
 
-	return tgbotapi.NewReplyKeyboard(row1, row2, row3)
+	return tgbotapi.NewReplyKeyboard(row1, row2, row3, row4)
 }

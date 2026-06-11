@@ -22,8 +22,12 @@ func handleUpdate(bot *tgbotapi.BotAPI, update *tgbotapi.Update, storage Storage
 		return
 	}
 
-	if sm.Get(userID) == StateAwaitingNoteText {
+	switch sm.Get(userID) {
+	case StateAwaitingNoteText:
 		handleAdd(bot, chatID, userID, text, storage, sm)
+		return
+	case StateAwaitingDeleteNumber:
+		handleDeleteNumber(bot, chatID, userID, text, storage, sm)
 		return
 	}
 
@@ -40,13 +44,13 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 
 	switch command {
 	case "/start":
-		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку")
+		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку\n/clear — удалить все заметки")
 		msg.ReplyMarkup = mainMenuKeyboard()
 		if _, err := bot.Send(msg); err != nil {
 			log.Printf("ошибка отправки сообщения: %v", err)
 		}
 	case "/help":
-		sendMessage(bot, chatID, "Я помогаю сохранять и находить информацию.\n\n*Команды:*\n/add <текст> — сохранить новую запись\n/list — показать все записи\n/find <слово> — поиск по записям\n/help — эта справка")
+		sendMessage(bot, chatID, "Я помогаю сохранять и находить информацию.\n\n*Команды:*\n/add <текст> — сохранить новую запись\n/list — показать все записи\n/find <слово> — поиск по записям\n/del <номер> — удалить запись\n/clear — удалить все записи\n/help — эта справка")
 	case "/add":
 		handleAdd(bot, chatID, userID, args, storage, sm)
 	case "/list":
@@ -54,7 +58,14 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 	case "/find":
 		handleFind(bot, chatID, userID, args, storage)
 	case "/del":
-		handleDelete(bot, chatID, userID, args, storage)
+		if args == "" {
+			sm.Set(userID, StateAwaitingDeleteNumber)
+			sendMessage(bot, chatID, "Введи номер заметки для удаления:")
+			return
+		}
+		handleDeleteNumber(bot, chatID, userID, args, storage, sm)
+	case "/clear":
+		handleClear(bot, chatID, userID, storage)
 	default:
 		sendMessage(bot, chatID, "Неизвестная команда. Напиши /help.")
 	}
@@ -109,15 +120,12 @@ func handleFind(bot *tgbotapi.BotAPI, chatID int64, userID int64, query string, 
 	sendMessage(bot, chatID, msg)
 }
 
-func handleDelete(bot *tgbotapi.BotAPI, chatID int64, userID int64, args string, storage Storage) {
-	if args == "" {
-		sendMessage(bot, chatID, "Использование: /del <номер>\nНомер можно узнать через /list.\nПример: /del 3")
-		return
-	}
+func handleDeleteNumber(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string, storage Storage, sm *StateManager) {
+	sm.Clear(userID)
 
 	var id int
-	if _, err := fmt.Sscanf(args, "%d", &id); err != nil {
-		sendMessage(bot, chatID, "Укажи номер записи цифрой.\nПример: /del 3")
+	if _, err := fmt.Sscanf(text, "%d", &id); err != nil {
+		sendMessage(bot, chatID, "Нужно ввести число. Попробуй ещё раз через /del")
 		return
 	}
 
@@ -127,6 +135,14 @@ func handleDelete(bot *tgbotapi.BotAPI, chatID int64, userID int64, args string,
 	}
 
 	sendMessage(bot, chatID, fmt.Sprintf("🗑 Запись #%d удалена!", id))
+}
+
+func handleClear(bot *tgbotapi.BotAPI, chatID int64, userID int64, storage Storage) {
+	if err := storage.DeleteAll(userID); err != nil {
+		sendMessage(bot, chatID, "Ошибка при удалении записей.")
+		return
+	}
+	sendMessage(bot, chatID, "🗑 Все записи удалены!")
 }
 
 func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, text string) {
