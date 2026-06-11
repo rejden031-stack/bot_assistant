@@ -15,14 +15,20 @@ func main() {
 
 	storage := NewMemoryStorage()
 	stateManager := NewStateManager()
+	ai := NewAIClient(os.Getenv("GEMINI_API_KEY"))
 
 	startHealthServer()
 	setupCommands(bot)
 
+	if ai != nil {
+		log.Printf("AI (Gemini) подключён")
+	} else {
+		log.Printf("AI не подключён — установите GEMINI_API_KEY")
+	}
 	log.Printf("Бот запущен как: %s", bot.Self.UserName)
 
 	updates := startUpdates(bot)
-	handleUpdates(bot, updates, storage, stateManager)
+	handleUpdates(bot, updates, storage, stateManager, ai)
 }
 
 func startHealthServer() {
@@ -96,9 +102,9 @@ func startUpdates(bot *tgbotapi.BotAPI) tgbotapi.UpdatesChannel {
 	return bot.GetUpdatesChan(updateConfig)
 }
 
-func handleUpdates(bot *tgbotapi.BotAPI, updates tgbotapi.UpdatesChannel, storage Storage, sm *StateManager) {
+func handleUpdates(bot *tgbotapi.BotAPI, updates tgbotapi.UpdatesChannel, storage Storage, sm *StateManager, ai *AIClient) {
 	for update := range updates {
-		handleUpdate(bot, &update, storage, sm)
+		handleUpdate(bot, &update, storage, sm, ai)
 	}
 }
 
@@ -109,6 +115,7 @@ func setupCommands(bot *tgbotapi.BotAPI) {
 		{Command: "find", Description: "Найти заметки"},
 		{Command: "del", Description: "Удалить заметку по номеру"},
 		{Command: "clear", Description: "Удалить все заметки"},
+		{Command: "ask", Description: "Спросить AI-ассистента"},
 		{Command: "help", Description: "Справка"},
 	}
 
@@ -129,6 +136,7 @@ func mainMenuKeyboard() tgbotapi.ReplyKeyboardMarkup {
 		{Text: "/del"},
 	}
 	row3 := []tgbotapi.KeyboardButton{
+		{Text: "/ask"},
 		{Text: "/clear"},
 	}
 	row4 := []tgbotapi.KeyboardButton{
