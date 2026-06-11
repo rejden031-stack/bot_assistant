@@ -184,7 +184,7 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 			sendMessage(bot, chatID, "Ошибка AI: "+err.Error())
 			return
 		}
-		sendMessage(bot, chatID, answer)
+		sendPlain(bot, chatID, answer)
 		return
 	}
 
@@ -196,10 +196,10 @@ func handleAskAI(bot *tgbotapi.BotAPI, chatID int64, userID int64, prompt string
 	notes, _ := storage.List(userID)
 	answer, err := ai.ask(prompt, notes, "Отвечай развёрнуто и полезно.")
 	if err != nil {
-		sendMessage(bot, chatID, "Ошибка AI: "+err.Error())
+		sendPlain(bot, chatID, "Ошибка AI: "+err.Error())
 		return
 	}
-	sendMessage(bot, chatID, answer)
+	sendPlain(bot, chatID, answer)
 }
 
 func handleVoice(bot *tgbotapi.BotAPI, chatID int64, userID int64, voice *tgbotapi.Voice, storage Storage, sm *StateManager, ai *AIClient) {
@@ -237,14 +237,15 @@ func handleVoice(bot *tgbotapi.BotAPI, chatID int64, userID int64, voice *tgbota
 		return
 	}
 
-	sendMessage(bot, chatID, "📝 *Распознано:*\n"+text)
+	sendMessage(bot, chatID, "📝 *Распознано:*")
+	sendPlain(bot, chatID, text)
 
 	notes, _ := storage.List(userID)
 	answer, err := ai.ask(text, notes, "Пользователь отправил голосовое сообщение. Ответь на него.")
 	if err != nil {
 		return
 	}
-	sendMessage(bot, chatID, answer)
+	sendPlain(bot, chatID, answer)
 }
 
 func sendTyping(bot *tgbotapi.BotAPI, chatID int64) {
@@ -264,6 +265,14 @@ func containsAny(s string, substrs ...string) bool {
 func sendMessage(bot *tgbotapi.BotAPI, chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
+
+	if _, err := bot.Send(msg); err != nil {
+		log.Printf("ошибка отправки сообщения: %v", err)
+	}
+}
+
+func sendPlain(bot *tgbotapi.BotAPI, chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
 
 	if _, err := bot.Send(msg); err != nil {
 		log.Printf("ошибка отправки сообщения: %v", err)
