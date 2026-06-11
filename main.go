@@ -84,6 +84,9 @@ func createBot(token string) *tgbotapi.BotAPI {
 func getToken() string {
 	token := os.Getenv("BOT_TOKEN")
 	if token != "" {
+		if len(token) > 4 {
+			log.Printf("Токен загружен (…%s)", token[len(token)-4:])
+		}
 		return token
 	}
 
