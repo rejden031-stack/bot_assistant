@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -85,17 +86,29 @@ func getToken() string {
 	token := os.Getenv("BOT_TOKEN")
 	if token != "" {
 		if len(token) > 4 {
-			log.Printf("Токен загружен (…%s)", token[len(token)-4:])
+			log.Printf("Токен из BOT_TOKEN (…%s)", token[len(token)-4:])
 		}
 		return token
 	}
 
-	token = "PASTE_YOUR_TOKEN_HERE"
-	if token == "PASTE_YOUR_TOKEN_HERE" {
-		log.Fatal("Токен не указан! Установите переменную окружения BOT_TOKEN или вставьте токен в код.")
+	filePath := os.Getenv("BOT_TOKEN_FILE")
+	if filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Fatalf("Не удалось прочитать BOT_TOKEN_FILE (%s): %v", filePath, err)
+		}
+		token = strings.TrimSpace(string(data))
+		if token == "" {
+			log.Fatal("BOT_TOKEN_FILE пуст")
+		}
+		if len(token) > 4 {
+			log.Printf("Токен из BOT_TOKEN_FILE (…%s)", token[len(token)-4:])
+		}
+		return token
 	}
 
-	return token
+	log.Fatal("Токен не указан! Установите BOT_TOKEN или BOT_TOKEN_FILE.")
+	return ""
 }
 
 func startUpdates(bot *tgbotapi.BotAPI) tgbotapi.UpdatesChannel {
