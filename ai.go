@@ -115,7 +115,7 @@ func (c *AIClient) doRequest(req geminiRequest) (string, error) {
 	body, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequest("POST",
-		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
 		bytes.NewReader(body),
 	)
 	if err != nil {
@@ -151,7 +151,7 @@ func (c *AIClient) retryRequest(req geminiRequest) (string, error) {
 	body, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequest("POST",
-		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
 		bytes.NewReader(body),
 	)
 	if err != nil {
