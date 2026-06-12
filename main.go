@@ -16,15 +16,15 @@ func main() {
 
 	storage := NewMemoryStorage()
 	stateManager := NewStateManager()
-	ai := NewAIClient(os.Getenv("GROQ_API_KEY"))
+	ai := NewAIClient(os.Getenv("OPENROUTER_API_KEY"))
 
 	startHealthServer()
 	setupCommands(bot)
 
 	if ai != nil {
-		log.Printf("AI (Groq) подключён")
+		log.Printf("AI (OpenRouter) подключён")
 	} else {
-		log.Printf("AI не подключён — установите GROQ_API_KEY")
+		log.Printf("AI не подключён — установите OPENROUTER_API_KEY")
 	}
 	log.Printf("Бот запущен как: %s", bot.Self.UserName)
 
