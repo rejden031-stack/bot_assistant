@@ -13,7 +13,7 @@ import (
 
 const (
 	aiEndpoint = "https://openrouter.ai/api/v1/chat/completions"
-	aiModel    = "meta-llama/llama-3.3-70b-instruct"
+	aiModel    = "meta-llama/llama-3.3-70b-instruct:free"
 )
 
 type AIClient struct {
