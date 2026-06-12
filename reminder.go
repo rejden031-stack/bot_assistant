@@ -143,24 +143,33 @@ func (s *ReminderStore) save() {
 }
 
 func parseReminderText(input string) (time.Time, string, error) {
-	lower := strings.ToLower(strings.TrimSpace(input))
-
-	if strings.HasPrefix(lower, "через ") {
-		return parseThrough(strings.TrimSpace(input[6:]))
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return time.Time{}, "", fmt.Errorf("напиши так: в 19:00 <текст>")
 	}
 
-	if strings.HasPrefix(lower, "завтра ") {
-		return parseTomorrow(strings.TrimSpace(input[7:]))
+	if t, text, err := tryParseThrough(s); err == nil {
+		return t, text, nil
 	}
 
-	input = strings.TrimSpace(strings.TrimPrefix(input, "в "))
-	return parseToday(input)
+	if t, text, err := tryParseTomorrow(s); err == nil {
+		return t, text, nil
+	}
+
+	return tryParseTime(s)
 }
 
-func parseThrough(s string) (time.Time, string, error) {
-	parts := strings.SplitN(s, " ", 2)
+func tryParseThrough(s string) (time.Time, string, error) {
+	lower := strings.ToLower(s)
+	idx := strings.Index(lower, "через ")
+	if idx < 0 {
+		return time.Time{}, "", fmt.Errorf("не найдено")
+	}
+
+	after := strings.TrimSpace(s[idx+6:])
+	parts := strings.SplitN(after, " ", 2)
 	if len(parts) < 2 {
-		return time.Time{}, "", fmt.Errorf("напиши так: через 30 минут <текст>")
+		return time.Time{}, "", fmt.Errorf("напиши: через N минут/часов <текст>")
 	}
 
 	num, err := strconv.Atoi(parts[0])
@@ -168,30 +177,44 @@ func parseThrough(s string) (time.Time, string, error) {
 		return time.Time{}, "", fmt.Errorf("не понял число: %s", parts[0])
 	}
 
+	unitParts := strings.SplitN(parts[1], " ", 2)
+	unit := strings.ToLower(unitParts[0])
 	text := ""
-	dur := 0
-	unit := strings.ToLower(parts[1])
+	if len(unitParts) > 1 {
+		text = unitParts[1]
+	}
 
+	dur := 0
 	switch {
 	case strings.HasPrefix(unit, "мин"):
 		dur = num
 	case strings.HasPrefix(unit, "ч"):
 		dur = num * 60
 	default:
-		return time.Time{}, "", fmt.Errorf("поддерживаю только минуты и часы. Пример: через 30 минут <текст>")
+		return time.Time{}, "", fmt.Errorf("поддерживаю минуты и часы. Пример: через 30 минут")
 	}
 
-	rest := strings.TrimSpace(s[len(parts[0])+len(unit):])
-	text = strings.TrimSpace(strings.TrimPrefix(rest, unit))
+	prefixText := strings.TrimSpace(s[:idx])
+	if prefixText != "" {
+		text = prefixText + " " + text
+	}
 
-	return time.Now().Add(time.Duration(dur) * time.Minute), text, nil
+	return time.Now().Add(time.Duration(dur) * time.Minute), strings.TrimSpace(text), nil
 }
 
-func parseTomorrow(s string) (time.Time, string, error) {
-	s = strings.TrimSpace(strings.TrimPrefix(s, "в "))
-	parts := strings.SplitN(s, " ", 2)
-	if len(parts) < 1 {
-		return time.Time{}, "", fmt.Errorf("напиши так: завтра в 19:00 <текст>")
+func tryParseTomorrow(s string) (time.Time, string, error) {
+	lower := strings.ToLower(s)
+	idx := strings.Index(lower, "завтра")
+	if idx < 0 {
+		return time.Time{}, "", fmt.Errorf("не найдено")
+	}
+
+	after := strings.TrimSpace(s[idx+6:])
+	after = strings.TrimSpace(strings.TrimPrefix(after, "в "))
+
+	parts := strings.SplitN(after, " ", 2)
+	if len(parts) < 1 || parts[0] == "" {
+		return time.Time{}, "", fmt.Errorf("напиши: завтра в 19:00 <текст>")
 	}
 
 	t, err := time.Parse("15:04", parts[0])
@@ -205,15 +228,24 @@ func parseTomorrow(s string) (time.Time, string, error) {
 		text = parts[1]
 	}
 
+	prefixText := strings.TrimSpace(s[:idx])
+	if prefixText != "" {
+		text = prefixText + " " + text
+	}
+
 	result := time.Date(now.Year(), now.Month(), now.Day()+1, t.Hour(), t.Minute(), 0, 0, now.Location())
-	return result, text, nil
+	return result, strings.TrimSpace(text), nil
 }
 
-func parseToday(s string) (time.Time, string, error) {
-	parts := strings.SplitN(s, " ", 2)
-	if len(parts) < 1 {
-		return time.Time{}, "", fmt.Errorf("напиши так: в 19:00 <текст>")
+func tryParseTime(s string) (time.Time, string, error) {
+	lower := strings.ToLower(s)
+	idx := strings.LastIndex(lower, "в ")
+	if idx < 0 {
+		return time.Time{}, "", fmt.Errorf("не нашёл время. Пиши: в 19:00 <текст> или через 30 минут <текст>")
 	}
+
+	after := strings.TrimSpace(s[idx+2:])
+	parts := strings.SplitN(after, " ", 2)
 
 	t, err := time.Parse("15:04", parts[0])
 	if err != nil {
@@ -226,12 +258,17 @@ func parseToday(s string) (time.Time, string, error) {
 		text = parts[1]
 	}
 
+	prefixText := strings.TrimSpace(s[:idx])
+	if prefixText != "" {
+		text = prefixText + " " + text
+	}
+
 	result := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
 	if result.Before(now) {
 		result = result.Add(24 * time.Hour)
 	}
 
-	return result, text, nil
+	return result, strings.TrimSpace(text), nil
 }
 
 func startReminderScheduler(bot *tgbotapi.BotAPI) {
