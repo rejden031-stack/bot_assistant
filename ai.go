@@ -27,18 +27,17 @@ func NewAIClient(apiKey string) *AIClient {
 	}
 }
 
-type deepseekMessage struct {
+type groqMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-type deepseekRequest struct {
-	Model       string             `json:"model"`
-	Messages    []deepseekMessage  `json:"messages"`
-	Temperature float64            `json:"temperature,omitempty"`
+type groqRequest struct {
+	Model       string        `json:"model"`
+	Messages    []groqMessage `json:"messages"`
 }
 
-type deepseekResponse struct {
+type groqResponse struct {
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -56,9 +55,9 @@ func (c *AIClient) Ask(prompt string, notes []Note) (string, error) {
 		system += "\nЕсли вопрос про заметки — используй эту информацию."
 	}
 
-	req := deepseekRequest{
-		Model: "deepseek-chat",
-		Messages: []deepseekMessage{
+	req := groqRequest{
+		Model: "llama-3.3-70b-versatile",
+		Messages: []groqMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: prompt},
 		},
@@ -67,18 +66,18 @@ func (c *AIClient) Ask(prompt string, notes []Note) (string, error) {
 	return c.doRequest(req)
 }
 
-func (c *AIClient) doRequest(req deepseekRequest) (string, error) {
+func (c *AIClient) doRequest(req groqRequest) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	body, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequest("POST",
-		"https://api.deepseek.com/v1/chat/completions",
+		"https://api.groq.com/openai/v1/chat/completions",
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return "", fmt.Errorf("deepseek request: %w", err)
+		return "", fmt.Errorf("groq request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -92,38 +91,35 @@ func (c *AIClient) doRequest(req deepseekRequest) (string, error) {
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == 429 {
-		log.Printf("DeepSeek rate limit, waiting 10s...")
+		log.Printf("Groq rate limit, waiting 10s...")
 		time.Sleep(10 * time.Second)
 		return c.retryRequest(req)
 	}
 
 	if resp.StatusCode != 200 {
 		if resp.StatusCode == 401 {
-			return "AI не подключён: неверный API-ключ DeepSeek.", nil
+			return "AI не подключён: неверный API-ключ Groq.", nil
 		}
-		if resp.StatusCode == 402 {
-			return "AI временно недоступен: закончились средства на балансе DeepSeek.", nil
-		}
-		return "", fmt.Errorf("deepseek error %d: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("groq error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var dr deepseekResponse
-	if err := json.Unmarshal(respBody, &dr); err != nil {
-		return "", fmt.Errorf("deepseek parse: %w", err)
+	var gr groqResponse
+	if err := json.Unmarshal(respBody, &gr); err != nil {
+		return "", fmt.Errorf("groq parse: %w", err)
 	}
 
-	if len(dr.Choices) == 0 {
+	if len(gr.Choices) == 0 {
 		return "AI не дал ответа.", nil
 	}
 
-	return dr.Choices[0].Message.Content, nil
+	return gr.Choices[0].Message.Content, nil
 }
 
-func (c *AIClient) retryRequest(req deepseekRequest) (string, error) {
+func (c *AIClient) retryRequest(req groqRequest) (string, error) {
 	body, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequest("POST",
-		"https://api.deepseek.com/v1/chat/completions",
+		"https://api.groq.com/openai/v1/chat/completions",
 		bytes.NewReader(body),
 	)
 	if err != nil {
@@ -144,14 +140,14 @@ func (c *AIClient) retryRequest(req deepseekRequest) (string, error) {
 		return "AI временно недоступен. Попробуй позже.", nil
 	}
 
-	var dr deepseekResponse
-	if err := json.Unmarshal(respBody, &dr); err != nil {
+	var gr groqResponse
+	if err := json.Unmarshal(respBody, &gr); err != nil {
 		return "AI временно недоступен. Попробуй позже.", nil
 	}
 
-	if len(dr.Choices) == 0 {
+	if len(gr.Choices) == 0 {
 		return "AI не дал ответа.", nil
 	}
 
-	return dr.Choices[0].Message.Content, nil
+	return gr.Choices[0].Message.Content, nil
 }

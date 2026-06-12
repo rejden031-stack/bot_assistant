@@ -78,7 +78,7 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 		handleClear(bot, chatID, userID, storage)
 	case "/ask":
 		if ai == nil {
-			sendMessage(bot, chatID, "AI не подключён. Установите DEEPSEEK_API_KEY.")
+			sendMessage(bot, chatID, "AI не подключён. Установите GROQ_API_KEY.")
 			return
 		}
 		if args == "" {
@@ -186,7 +186,7 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 		return
 	}
 
-	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь DEEPSEEK_API_KEY для AI.")
+	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь GROQ_API_KEY для AI.")
 }
 
 func handleAskAI(bot *tgbotapi.BotAPI, chatID int64, userID int64, prompt string, storage Storage, ai *AIClient) {
