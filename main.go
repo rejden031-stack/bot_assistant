@@ -29,6 +29,7 @@ func main() {
 	}
 
 	reminderStore = NewReminderStore()
+	initReminderLocation()
 	startReminderScheduler(bot)
 	log.Printf("Напоминания активны")
 

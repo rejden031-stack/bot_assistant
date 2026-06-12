@@ -31,6 +31,25 @@ type ReminderStore struct {
 }
 
 var reminderStore *ReminderStore
+var reminderLocation = time.UTC
+
+func initReminderLocation() {
+	tz := os.Getenv("TZ")
+	if tz == "" {
+		tz = "Europe/Moscow"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		log.Printf("reminder timezone %s: %v, using UTC", tz, err)
+		return
+	}
+	reminderLocation = loc
+	log.Printf("Напоминания: часовой пояс %s", tz)
+}
+
+func nowLocal() time.Time {
+	return time.Now().In(reminderLocation)
+}
 
 func NewReminderStore() *ReminderStore {
 	dir := "data"
@@ -199,7 +218,7 @@ func tryParseThrough(s string) (time.Time, string, error) {
 		text = prefixText + " " + text
 	}
 
-	return time.Now().Add(time.Duration(dur) * time.Minute), strings.TrimSpace(text), nil
+	return nowLocal().Add(time.Duration(dur) * time.Minute), strings.TrimSpace(text), nil
 }
 
 func tryParseTomorrow(s string) (time.Time, string, error) {
@@ -222,7 +241,7 @@ func tryParseTomorrow(s string) (time.Time, string, error) {
 		return time.Time{}, "", fmt.Errorf("не понял время. Пиши: завтра в 19:00 <текст>")
 	}
 
-	now := time.Now()
+	now := nowLocal()
 	text := ""
 	if len(parts) > 1 {
 		text = parts[1]
@@ -233,7 +252,7 @@ func tryParseTomorrow(s string) (time.Time, string, error) {
 		text = prefixText + " " + text
 	}
 
-	result := time.Date(now.Year(), now.Month(), now.Day()+1, t.Hour(), t.Minute(), 0, 0, now.Location())
+	result := time.Date(now.Year(), now.Month(), now.Day()+1, t.Hour(), t.Minute(), 0, 0, reminderLocation)
 	return result, strings.TrimSpace(text), nil
 }
 
@@ -252,7 +271,7 @@ func tryParseTime(s string) (time.Time, string, error) {
 		return time.Time{}, "", fmt.Errorf("не понял время. Пиши: в 19:00 <текст> или через 30 минут <текст>")
 	}
 
-	now := time.Now()
+	now := nowLocal()
 	text := ""
 	if len(parts) > 1 {
 		text = parts[1]
@@ -263,7 +282,7 @@ func tryParseTime(s string) (time.Time, string, error) {
 		text = prefixText + " " + text
 	}
 
-	result := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, now.Location())
+	result := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, reminderLocation)
 	if result.Before(now) {
 		result = result.Add(24 * time.Hour)
 	}
