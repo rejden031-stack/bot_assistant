@@ -6,13 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 )
 
+const geminiModel = "gemini-1.5-flash"
+
 type AIClient struct {
-	apiKey string
-	client *http.Client
+	apiKey   string
+	client   *http.Client
+	mu       sync.Mutex
+	lastCall time.Time
+	enabled  bool
 }
 
 func NewAIClient(apiKey string) *AIClient {
@@ -20,8 +28,9 @@ func NewAIClient(apiKey string) *AIClient {
 		return nil
 	}
 	return &AIClient{
-		apiKey: apiKey,
-		client: &http.Client{Timeout: 30 * time.Second},
+		apiKey:  apiKey,
+		client:  &http.Client{Timeout: 30 * time.Second},
+		enabled: true,
 	}
 }
 
@@ -94,10 +103,19 @@ func (c *AIClient) transcribe(audioData []byte) (string, error) {
 }
 
 func (c *AIClient) doRequest(req geminiRequest) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sinceLast := time.Since(c.lastCall)
+	if sinceLast < 1100*time.Millisecond {
+		time.Sleep(1100*time.Millisecond - sinceLast)
+	}
+	c.lastCall = time.Now()
+
 	body, _ := json.Marshal(req)
 
 	httpReq, err := http.NewRequest("POST",
-		"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="+c.apiKey,
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
 		bytes.NewReader(body),
 	)
 	if err != nil {
@@ -113,18 +131,56 @@ func (c *AIClient) doRequest(req geminiRequest) (string, error) {
 
 	respBody, _ := io.ReadAll(resp.Body)
 
+	if resp.StatusCode == 429 {
+		log.Printf("Gemini rate limit hit, waiting before retry")
+		time.Sleep(60 * time.Second)
+		return c.retryRequest(req)
+	}
+
 	if resp.StatusCode != 200 {
+		if strings.Contains(string(respBody), "quota") {
+			return "AI временно недоступен: дневной лимит исчерпан. Попробуй позже.", nil
+		}
 		return "", fmt.Errorf("gemini error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var gr geminiResponse
-	if err := json.Unmarshal(respBody, &gr); err != nil {
-		return "", fmt.Errorf("gemini parse: %w", err)
+	return parseResponse(respBody)
+}
+
+func (c *AIClient) retryRequest(req geminiRequest) (string, error) {
+	body, _ := json.Marshal(req)
+
+	httpReq, err := http.NewRequest("POST",
+		fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", geminiModel, c.apiKey),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "AI временно недоступен. Попробуй позже.", nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "AI временно недоступен. Попробуй позже.", nil
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return "AI временно недоступен. Попробуй позже.", nil
 	}
 
+	return parseResponse(respBody)
+}
+
+func parseResponse(body []byte) (string, error) {
+	var gr geminiResponse
+	if err := json.Unmarshal(body, &gr); err != nil {
+		return "", fmt.Errorf("gemini parse: %w", err)
+	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
 		return "AI не дал ответа.", nil
 	}
-
 	return gr.Candidates[0].Content.Parts[0].Text, nil
 }
