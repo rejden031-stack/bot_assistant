@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -49,6 +50,27 @@ func startHealthServer() {
 			log.Printf("Health server stopped: %v", err)
 		}
 	}()
+
+	go selfPing()
+}
+
+func selfPing() {
+	url := os.Getenv("RENDER_EXTERNAL_URL")
+	if url == "" {
+		url = "https://bot-assistant-vhbf.onrender.com"
+	}
+	healthURL := url + "/health"
+
+	for {
+		time.Sleep(4 * time.Minute)
+		resp, err := http.Get(healthURL)
+		if err != nil {
+			log.Printf("self-ping error: %v", err)
+			continue
+		}
+		resp.Body.Close()
+		log.Printf("self-ping: %s", resp.Status)
+	}
 }
 
 func createBot(token string) *tgbotapi.BotAPI {
