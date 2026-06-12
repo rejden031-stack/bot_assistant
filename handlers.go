@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
@@ -20,7 +18,7 @@ func handleUpdate(bot *tgbotapi.BotAPI, update *tgbotapi.Update, storage Storage
 	userID := update.Message.From.ID
 
 	if update.Message.Voice != nil {
-		handleVoice(bot, chatID, userID, update.Message.Voice, storage, sm, ai)
+		sendMessage(bot, chatID, "Голосовые сообщения не поддерживаются.")
 		return
 	}
 
@@ -56,7 +54,7 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 
 	switch command {
 	case "/start":
-		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку\n/clear — удалить все заметки\n/ask <вопрос> — спросить AI\n\nТакже можно просто написать текст или отправить голосовое — AI ответит.")
+		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку\n/clear — удалить все заметки\n/ask <вопрос> — спросить AI\n\nТакже можно просто написать текст — AI ответит.")
 		msg.ReplyMarkup = mainMenuKeyboard()
 		if _, err := bot.Send(msg); err != nil {
 			log.Printf("ошибка отправки сообщения: %v", err)
@@ -80,7 +78,7 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 		handleClear(bot, chatID, userID, storage)
 	case "/ask":
 		if ai == nil {
-			sendMessage(bot, chatID, "AI не подключён. Установите GEMINI_API_KEY.")
+			sendMessage(bot, chatID, "AI не подключён. Установите DEEPSEEK_API_KEY.")
 			return
 		}
 		if args == "" {
@@ -179,7 +177,7 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 	if ai != nil {
 		sendTyping(bot, chatID)
 		notes, _ := storage.List(userID)
-		answer, err := ai.ask(text, notes, "")
+		answer, err := ai.Ask(text, notes)
 		if err != nil {
 			sendMessage(bot, chatID, "Ошибка AI: "+err.Error())
 			return
@@ -188,61 +186,15 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 		return
 	}
 
-	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь GEMINI_API_KEY для AI.")
+	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь DEEPSEEK_API_KEY для AI.")
 }
 
 func handleAskAI(bot *tgbotapi.BotAPI, chatID int64, userID int64, prompt string, storage Storage, ai *AIClient) {
 	sendTyping(bot, chatID)
 	notes, _ := storage.List(userID)
-	answer, err := ai.ask(prompt, notes, "Отвечай развёрнуто и полезно.")
+	answer, err := ai.Ask(prompt, notes)
 	if err != nil {
 		sendPlain(bot, chatID, "Ошибка AI: "+err.Error())
-		return
-	}
-	sendPlain(bot, chatID, answer)
-}
-
-func handleVoice(bot *tgbotapi.BotAPI, chatID int64, userID int64, voice *tgbotapi.Voice, storage Storage, sm *StateManager, ai *AIClient) {
-	if ai == nil {
-		sendMessage(bot, chatID, "AI не подключён. Голосовые сообщения не поддерживаются.")
-		return
-	}
-
-	sendMessage(bot, chatID, "🎤 Расшифровываю голосовое...")
-
-	file, err := bot.GetFile(tgbotapi.FileConfig{FileID: voice.FileID})
-	if err != nil {
-		sendMessage(bot, chatID, "Ошибка при получении файла.")
-		return
-	}
-
-	url := file.Link(bot.Token)
-	resp, err := http.Get(url)
-	if err != nil {
-		sendMessage(bot, chatID, "Ошибка при скачивании аудио.")
-		return
-	}
-	defer resp.Body.Close()
-
-	audioData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		sendMessage(bot, chatID, "Ошибка при чтении аудио.")
-		return
-	}
-
-	sendTyping(bot, chatID)
-	text, err := ai.transcribe(audioData)
-	if err != nil {
-		sendMessage(bot, chatID, "Ошибка распознавания: "+err.Error())
-		return
-	}
-
-	sendMessage(bot, chatID, "📝 *Распознано:*")
-	sendPlain(bot, chatID, text)
-
-	notes, _ := storage.List(userID)
-	answer, err := ai.ask(text, notes, "Пользователь отправил голосовое сообщение. Ответь на него.")
-	if err != nil {
 		return
 	}
 	sendPlain(bot, chatID, answer)
