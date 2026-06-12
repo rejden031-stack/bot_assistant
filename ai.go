@@ -12,14 +12,18 @@ import (
 )
 
 const (
-	aiEndpoint = "https://openrouter.ai/api/v1/chat/completions"
-	aiModel    = "meta-llama/llama-3.3-70b-instruct:free"
+	aiEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
+	aiModel      = "openrouter/free"
+	maxRetries   = 3
+	retryDelay   = 5 * time.Second
+	requestLimit = time.Minute
 )
 
 type AIClient struct {
-	apiKey string
-	client *http.Client
-	mu     sync.Mutex
+	apiKey     string
+	client     *http.Client
+	mu         sync.Mutex
+	lastReq    time.Time
 }
 
 func NewAIClient(apiKey string) *AIClient {
@@ -28,7 +32,7 @@ func NewAIClient(apiKey string) *AIClient {
 	}
 	return &AIClient{
 		apiKey: apiKey,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -78,86 +82,64 @@ func (c *AIClient) doRequest(req aiRequest) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	elapsed := time.Since(c.lastReq)
+	if elapsed < requestLimit {
+		time.Sleep(requestLimit - elapsed)
+	}
+
 	body, _ := json.Marshal(req)
 
-	httpReq, err := http.NewRequest("POST", aiEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("ai request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		httpReq, err := http.NewRequest("POST", aiEndpoint, bytes.NewReader(body))
+		if err != nil {
+			return "", fmt.Errorf("ai request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("ai request: %w", err)
-	}
-	defer resp.Body.Close()
+		resp, err := c.client.Do(httpReq)
+		if err != nil {
+			return "", fmt.Errorf("ai request: %w", err)
+		}
+		defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode == 429 {
-		log.Printf("AI rate limit, waiting 10s...")
-		time.Sleep(10 * time.Second)
-		return c.retryRequest(req)
-	}
+		if resp.StatusCode == 200 {
+			c.lastReq = time.Now()
 
-	if resp.StatusCode != 200 {
+			var ar aiResponse
+			if err := json.Unmarshal(respBody, &ar); err != nil {
+				return "", fmt.Errorf("ai parse: %w", err)
+			}
+			if ar.Error != nil {
+				return "AI: " + ar.Error.Message, nil
+			}
+			if len(ar.Choices) == 0 {
+				return "AI не дал ответа.", nil
+			}
+			return ar.Choices[0].Message.Content, nil
+		}
+
+		log.Printf("AI attempt %d/%d: status %d", attempt+1, maxRetries+1, resp.StatusCode)
+
+		if resp.StatusCode == 401 {
+			return "AI не подключён: неверный API-ключ.", nil
+		}
+
+		if resp.StatusCode == 429 && attempt < maxRetries {
+			wait := retryDelay * (1 << attempt)
+			log.Printf("AI rate limit, waiting %v...", wait)
+			time.Sleep(wait)
+			continue
+		}
+
 		var errResp aiResponse
 		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != nil {
 			return "AI: " + errResp.Error.Message, nil
 		}
-		if resp.StatusCode == 401 {
-			return "AI не подключён: неверный API-ключ.", nil
-		}
 		return "", fmt.Errorf("ai error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var ar aiResponse
-	if err := json.Unmarshal(respBody, &ar); err != nil {
-		return "", fmt.Errorf("ai parse: %w", err)
-	}
-
-	if ar.Error != nil {
-		return "AI: " + ar.Error.Message, nil
-	}
-
-	if len(ar.Choices) == 0 {
-		return "AI не дал ответа.", nil
-	}
-
-	return ar.Choices[0].Message.Content, nil
-}
-
-func (c *AIClient) retryRequest(req aiRequest) (string, error) {
-	body, _ := json.Marshal(req)
-
-	httpReq, err := http.NewRequest("POST", aiEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return "AI временно недоступен. Попробуй позже.", nil
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return "AI временно недоступен. Попробуй позже.", nil
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		return "AI временно недоступен. Попробуй позже.", nil
-	}
-
-	var ar aiResponse
-	if err := json.Unmarshal(respBody, &ar); err != nil {
-		return "AI временно недоступен. Попробуй позже.", nil
-	}
-
-	if len(ar.Choices) == 0 {
-		return "AI не дал ответа.", nil
-	}
-
-	return ar.Choices[0].Message.Content, nil
+	return "AI временно недоступен. Попробуй позже.", nil
 }
