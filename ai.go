@@ -13,7 +13,7 @@ import (
 
 const (
 	aiEndpoint   = "https://openrouter.ai/api/v1/chat/completions"
-	aiModel      = "openrouter/free"
+	aiModel      = "google/gemma-4-31b-it:free"
 	maxRetries   = 3
 	retryDelay   = 5 * time.Second
 	requestLimit = time.Minute
