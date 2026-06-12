@@ -201,27 +201,8 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 		return
 	}
 
-	remindPrefixes := []string{"напомни ", "напомнить ", "напомнишь "}
-	for _, p := range remindPrefixes {
-		if strings.HasPrefix(lower, p) {
-			args := trimmed[len(p):]
-			t, text, err := parseReminderText(args)
-			if err != nil {
-				sendMessage(bot, chatID, "Ошибка: "+err.Error())
-				return
-			}
-			if text == "" {
-				sendMessage(bot, chatID, "А что напомнить?")
-				return
-			}
-			if reminderStore == nil {
-				sendMessage(bot, chatID, "Напоминания временно недоступны.")
-				return
-			}
-			id := reminderStore.Add(userID, chatID, t, text)
-			sendMessage(bot, chatID, fmt.Sprintf("✅ Напоминание #%d на %s", id, t.Format("2 Jan 15:04")))
-			return
-		}
+	if tryCreateReminder(bot, chatID, userID, lower, trimmed) {
+		return
 	}
 
 	if ai != nil {
@@ -237,6 +218,39 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 	}
 
 	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь OPENROUTER_API_KEY для AI.")
+}
+
+func tryCreateReminder(bot *tgbotapi.BotAPI, chatID int64, userID int64, lower, trimmed string) bool {
+	prefixes := []string{"напомни ", "напомнить ", "напомнишь "}
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			args := trimmed[len(p):]
+			return createReminderFromText(bot, chatID, userID, args)
+		}
+	}
+	if strings.HasPrefix(lower, "через ") {
+		return createReminderFromText(bot, chatID, userID, trimmed)
+	}
+	return false
+}
+
+func createReminderFromText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string) bool {
+	if reminderStore == nil {
+		sendMessage(bot, chatID, "Напоминания временно недоступны.")
+		return true
+	}
+	t, reminderText, err := parseReminderText(text)
+	if err != nil {
+		sendMessage(bot, chatID, "Ошибка: "+err.Error())
+		return true
+	}
+	if reminderText == "" {
+		sendMessage(bot, chatID, "А что напомнить?")
+		return true
+	}
+	id := reminderStore.Add(userID, chatID, t, reminderText)
+	sendMessage(bot, chatID, fmt.Sprintf("✅ Напоминание #%d на %s", id, t.Format("2 Jan 15:04")))
+	return true
 }
 
 func handleFindQuery(bot *tgbotapi.BotAPI, chatID int64, userID int64, query string, storage Storage, sm *StateManager) {

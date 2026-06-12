@@ -32,6 +32,22 @@ type ReminderStore struct {
 
 var reminderStore *ReminderStore
 var reminderLocation = time.UTC
+var pendingReminderTimes = make(map[int64]time.Time)
+var pendingMu sync.Mutex
+
+func setPendingTime(userID int64, t time.Time) {
+	pendingMu.Lock()
+	pendingReminderTimes[userID] = t
+	pendingMu.Unlock()
+}
+
+func getPendingTime(userID int64) (time.Time, bool) {
+	pendingMu.Lock()
+	t, ok := pendingReminderTimes[userID]
+	delete(pendingReminderTimes, userID)
+	pendingMu.Unlock()
+	return t, ok
+}
 
 func initReminderLocation() {
 	tz := os.Getenv("TZ")
