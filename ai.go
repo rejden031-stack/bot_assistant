@@ -16,7 +16,7 @@ const (
 	aiModel      = "google/gemma-4-31b-it:free"
 	maxRetries   = 3
 	retryDelay   = 5 * time.Second
-	requestLimit = time.Minute
+	requestLimit = 12 * time.Second
 )
 
 type AIClient struct {
