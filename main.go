@@ -27,6 +27,11 @@ func main() {
 	} else {
 		log.Printf("AI не подключён — установите OPENROUTER_API_KEY")
 	}
+
+	reminderStore = NewReminderStore()
+	startReminderScheduler(bot)
+	log.Printf("Напоминания активны")
+
 	log.Printf("Бот запущен как: %s", bot.Self.UserName)
 
 	updates := startUpdates(bot)
@@ -154,6 +159,9 @@ func setupCommands(bot *tgbotapi.BotAPI) {
 		{Command: "del", Description: "Удалить заметку по номеру"},
 		{Command: "clear", Description: "Удалить все заметки"},
 		{Command: "ask", Description: "Спросить AI-ассистента"},
+		{Command: "remind", Description: "Создать напоминание"},
+		{Command: "reminders", Description: "Список напоминаний"},
+		{Command: "reminddel", Description: "Удалить напоминание"},
 		{Command: "help", Description: "Справка"},
 	}
 
@@ -175,9 +183,10 @@ func mainMenuKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	}
 	row3 := []tgbotapi.KeyboardButton{
 		{Text: "/ask"},
-		{Text: "/clear"},
+		{Text: "/remind"},
 	}
 	row4 := []tgbotapi.KeyboardButton{
+		{Text: "/reminders"},
 		{Text: "/help"},
 	}
 

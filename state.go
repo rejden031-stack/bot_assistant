@@ -8,6 +8,8 @@ const (
 	StateNone UserState = iota
 	StateAwaitingNoteText
 	StateAwaitingDeleteNumber
+	StateAwaitingFindQuery
+	StateAwaitingRemindText
 )
 
 type StateManager struct {

@@ -39,6 +39,12 @@ func handleUpdate(bot *tgbotapi.BotAPI, update *tgbotapi.Update, storage Storage
 	case StateAwaitingDeleteNumber:
 		handleDeleteNumber(bot, chatID, userID, text, storage, sm)
 		return
+	case StateAwaitingFindQuery:
+		handleFindQuery(bot, chatID, userID, text, storage, sm)
+		return
+	case StateAwaitingRemindText:
+		handleRemindText(bot, chatID, userID, text, sm)
+		return
 	}
 
 	handleFreeText(bot, chatID, userID, text, storage, ai)
@@ -54,18 +60,23 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 
 	switch command {
 	case "/start":
-		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку\n/clear — удалить все заметки\n/ask <вопрос> — спросить AI\n\nТакже можно просто написать текст — AI ответит.")
+		msg := tgbotapi.NewMessage(chatID, "Привет! Я твой персональный ассистент.\n\n/add <текст> — добавить заметку\n/list — показать все заметки\n/find <запрос> — найти заметки\n/del <номер> — удалить заметку\n/clear — удалить все заметки\n/ask <вопрос> — спросить AI\n/remind — создать напоминание\n/reminders — список напоминаний\n\nТакже можно просто написать текст — AI ответит.")
 		msg.ReplyMarkup = mainMenuKeyboard()
 		if _, err := bot.Send(msg); err != nil {
 			log.Printf("ошибка отправки сообщения: %v", err)
 		}
 	case "/help":
-		sendMessage(bot, chatID, "Я помогаю сохранять и находить информацию.\n\n*Команды:*\n/add <текст> — сохранить новую запись\n/list — показать все записи\n/find <слово> — поиск по записям\n/del <номер> — удалить запись\n/clear — удалить все записи\n/ask <вопрос> — спросить AI\n/help — эта справка")
+		sendMessage(bot, chatID, "Я помогаю сохранять и находить информацию.\n\n*Команды:*\n/add <текст> — сохранить новую запись\n/list — показать все записи\n/find <слово> — поиск по записям\n/del <номер> — удалить запись\n/clear — удалить все записи\n/ask <вопрос> — спросить AI\n/remind — создать напоминание\n/reminders — список напоминаний\n/reminddel <номер> — удалить напоминание\n/help — эта справка")
 	case "/add":
 		handleAdd(bot, chatID, userID, args, storage, sm)
 	case "/list":
 		handleList(bot, chatID, userID, storage)
 	case "/find":
+		if args == "" {
+			sm.Set(userID, StateAwaitingFindQuery)
+			sendMessage(bot, chatID, "Что ищем?")
+			return
+		}
 		handleFind(bot, chatID, userID, args, storage)
 	case "/del":
 		if args == "" {
@@ -86,6 +97,21 @@ func handleCommand(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string
 			return
 		}
 		handleAskAI(bot, chatID, userID, args, storage, ai)
+	case "/remind":
+		if args == "" {
+			sm.Set(userID, StateAwaitingRemindText)
+			sendMessage(bot, chatID, "Во сколько и что напомнить?\nНапример: в 19:00 накормить кота")
+			return
+		}
+		handleRemind(bot, chatID, userID, args, sm)
+	case "/reminders":
+		handleReminders(bot, chatID, userID)
+	case "/reminddel":
+		if args == "" {
+			sendMessage(bot, chatID, "Использование: /reminddel <номер>\nСмотри /reminders для списка номеров.")
+			return
+		}
+		handleRemindDel(bot, chatID, userID, args)
 	default:
 		sendMessage(bot, chatID, "Неизвестная команда. Напиши /help.")
 	}
@@ -167,11 +193,35 @@ func handleClear(bot *tgbotapi.BotAPI, chatID int64, userID int64, storage Stora
 
 func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string, storage Storage, ai *AIClient) {
 	lower := strings.ToLower(text)
+	trimmed := strings.TrimSpace(text)
 
 	switch {
 	case containsAny(lower, "что ты можешь", "что ты умеешь", "твои возможности", "какие функции"):
-		sendMessage(bot, chatID, "Я умею:\n\n📝 /add <текст> — сохранить заметку\n📋 /list — показать все заметки\n🔍 /find <запрос> — найти заметки\n/del — удалить заметку\n/clear — удалить все\n/ask <вопрос> — спросить AI\n❓ /help — справка по командам")
+		sendMessage(bot, chatID, "Я умею:\n\n📝 /add <текст> — сохранить заметку\n📋 /list — показать все заметки\n🔍 /find <запрос> — найти заметки\n/del — удалить заметку\n/clear — удалить все\n/ask <вопрос> — спросить AI\n/remind — создать напоминание\n❓ /help — справка по командам")
 		return
+	}
+
+	remindPrefixes := []string{"напомни ", "напомнить ", "напомнишь "}
+	for _, p := range remindPrefixes {
+		if strings.HasPrefix(lower, p) {
+			args := trimmed[len(p):]
+			t, text, err := parseReminderText(args)
+			if err != nil {
+				sendMessage(bot, chatID, "Ошибка: "+err.Error())
+				return
+			}
+			if text == "" {
+				sendMessage(bot, chatID, "А что напомнить?")
+				return
+			}
+			if reminderStore == nil {
+				sendMessage(bot, chatID, "Напоминания временно недоступны.")
+				return
+			}
+			id := reminderStore.Add(userID, chatID, t, text)
+			sendMessage(bot, chatID, fmt.Sprintf("✅ Напоминание #%d на %s", id, t.Format("2 Jan 15:04")))
+			return
+		}
 	}
 
 	if ai != nil {
@@ -187,6 +237,92 @@ func handleFreeText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text strin
 	}
 
 	sendMessage(bot, chatID, "Напиши /help чтобы узнать команды. Или добавь OPENROUTER_API_KEY для AI.")
+}
+
+func handleFindQuery(bot *tgbotapi.BotAPI, chatID int64, userID int64, query string, storage Storage, sm *StateManager) {
+	sm.Clear(userID)
+	handleFind(bot, chatID, userID, query, storage)
+}
+
+func handleRemind(bot *tgbotapi.BotAPI, chatID int64, userID int64, args string, sm *StateManager) {
+	if reminderStore == nil {
+		sendMessage(bot, chatID, "Напоминания временно недоступны.")
+		return
+	}
+
+	t, text, err := parseReminderText(args)
+	if err != nil {
+		sendMessage(bot, chatID, "Ошибка: "+err.Error())
+		return
+	}
+	if text == "" {
+		sm.Set(userID, StateAwaitingRemindText)
+		sendMessage(bot, chatID, fmt.Sprintf("Напомню в %s. А что напомнить?", t.Format("15:04")))
+		return
+	}
+
+	id := reminderStore.Add(userID, chatID, t, text)
+	sendMessage(bot, chatID, fmt.Sprintf("✅ Напоминание #%d в %s", id, t.Format("2 Jan 15:04")))
+}
+
+func handleRemindText(bot *tgbotapi.BotAPI, chatID int64, userID int64, text string, sm *StateManager) {
+	if reminderStore == nil {
+		sendMessage(bot, chatID, "Напоминания временно недоступны.")
+		return
+	}
+
+	t, reminderText, err := parseReminderText(text)
+	if err != nil {
+		sendMessage(bot, chatID, "Ошибка: "+err.Error())
+		return
+	}
+	if reminderText == "" {
+		sendMessage(bot, chatID, "А что напомнить? Напиши что-нибудь ещё.")
+		return
+	}
+
+	id := reminderStore.Add(userID, chatID, t, reminderText)
+	sm.Clear(userID)
+	sendMessage(bot, chatID, fmt.Sprintf("✅ Напоминание #%d на %s", id, t.Format("2 Jan 15:04")))
+}
+
+func handleReminders(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	if reminderStore == nil {
+		sendMessage(bot, chatID, "Напоминания временно недоступны.")
+		return
+	}
+
+	pending := reminderStore.ListPending(userID)
+	if len(pending) == 0 {
+		sendMessage(bot, chatID, "Нет активных напоминаний.")
+		return
+	}
+
+	msg := "⏰ *Активные напоминания:*\n\n"
+	for _, r := range pending {
+		msg += fmt.Sprintf("`#%d` %s — ⏱ %s\n", r.ID, r.Text, r.Time.Format("2 Jan 15:04"))
+	}
+	sendMessage(bot, chatID, msg)
+}
+
+func handleRemindDel(bot *tgbotapi.BotAPI, chatID int64, userID int64, args string) {
+	if reminderStore == nil {
+		sendMessage(bot, chatID, "Напоминания временно недоступны.")
+		return
+	}
+
+	var id int
+	if _, err := fmt.Sscanf(args, "%d", &id); err != nil {
+		sendMessage(bot, chatID, "Нужен номер напоминания. Смотри /reminders")
+		return
+	}
+
+	if err := reminderStore.Delete(userID, id); err != nil {
+		sendMessage(bot, chatID, fmt.Sprintf("Ошибка: %v", err))
+		return
+	}
+
+	sendMessage(bot, chatID, fmt.Sprintf("🗑 Напоминание #%d удалено!", id))
 }
 
 func handleAskAI(bot *tgbotapi.BotAPI, chatID int64, userID int64, prompt string, storage Storage, ai *AIClient) {
